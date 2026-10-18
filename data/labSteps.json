@@ -1,0 +1,142 @@
+[
+  {
+    "id": 1,
+    "title": "Check the cloud GPU",
+    "code": "!nvidia-smi\nimport torch\nprint(\"CUDA available:\", torch.cuda.is_available())\nif torch.cuda.is_available():\n    print(\"GPU model:\", torch.cuda.get_device_name(0))\n    print(\"GPU VRAM (GB):\", round(torch.cuda.get_device_properties(0).total_memory / 1024**3, 1))\n",
+    "why": "Make sure Colab has allocated a GPU before you download anything. Your RTX 3050 at home is not being used by a cloud Colab runtime.",
+    "explanation": "`!nvidia-smi` asks the NVIDIA driver about the GPU and its memory. The exclamation mark tells the notebook to execute a Linux shell command. `import torch` loads PyTorch, the library performing the GPU calculations. `torch.cuda.is_available()` tests whether it can access an NVIDIA GPU. The `if` block prints the hardware name and memory only if the check passes. `1024**3` converts bytes into gibibytes.",
+    "expected": "Expect a GPU such as Tesla T4 or another NVIDIA model, and CUDA available: True. Exact GPU type and memory vary.",
+    "check": "If CUDA is False, stop. Choose Runtime > Change runtime type > GPU, reconnect, and rerun.",
+    "trouble": "If the GPU option is unavailable, free Colab quota or capacity may be exhausted. Try later; do not pay before testing the free tier."
+  },
+  {
+    "id": 2,
+    "title": "Install software inside Colab",
+    "code": "%pip -q install -U unsloth datasets trl\n",
+    "why": "Install the training libraries on the cloud computer. Installing them on Windows is not required.",
+    "explanation": "`%pip` installs Python packages into the notebook environment. `unsloth` loads and fine tunes models using memory-saving methods. `datasets` handles training records. `trl` provides a supervised fine tuning trainer. `-q` asks for quieter output; `-U` asks for current compatible releases. Package versions may change; this is the most version-sensitive step.",
+    "expected": "Installation finishes without a red error. You may see informational warnings about package versions.",
+    "check": "If asked to restart, use Runtime > Restart session, then start running from Cell 01 again.",
+    "trouble": "If dependencies conflict, use the installation cell from the latest official Unsloth Qwen3 Colab notebook. Do not mix old trainer examples with newer packages."
+  },
+  {
+    "id": 3,
+    "title": "Import and set reproducible choices",
+    "code": "import random\nimport numpy as np\nimport torch\nfrom unsloth import FastLanguageModel\nfrom datasets import Dataset\n\nSEED = 42\nrandom.seed(SEED)\nnp.random.seed(SEED)\ntorch.manual_seed(SEED)\nMAX_LENGTH = 512\nMODEL_ID = \"unsloth/Qwen3-0.6B-unsloth-bnb-4bit\"\nprint(\"Chosen checkpoint:\", MODEL_ID)\n",
+    "why": "Decide the model, random seed and the maximum length before training so you know exactly what was used.",
+    "explanation": "`import` statements make functions available. `random`, NumPy and PyTorch have separate random-number sources. Setting them to 42 helps reproduce a run, although GPU software can still vary. `MAX_LENGTH=512` caps the text pieces used in one training record. `MODEL_ID` points to a real 4 bit Qwen3 0.6B model on Hugging Face. 0.6B means roughly 600 million parameters; it is an intentionally small practice model.",
+    "expected": "You should see the printed checkpoint name.",
+    "check": "In the lab report, write down model name, date, GPU type and version of the notebook.",
+    "trouble": "If `unsloth` fails to import after installation, restart the Colab runtime and rerun the import cell."
+  },
+  {
+    "id": 4,
+    "title": "Download the starting model",
+    "code": "model, tokenizer = FastLanguageModel.from_pretrained(\n    model_name=MODEL_ID,\n    max_seq_length=MAX_LENGTH,\n    load_in_4bit=True,\n    dtype=None,\n)\nprint(\"Model and tokenizer loaded\")\n",
+    "why": "Load a pre-trained model before it learns anything from your examples. This is the baseline.",
+    "explanation": "`FastLanguageModel.from_pretrained` downloads or reads the model. `model` holds the neural network; `tokenizer` turns words into numerical tokens and back again. `max_seq_length` controls the allowed training context. `load_in_4bit=True` stores base weights in an efficient format to save VRAM. This is NOT the same as training every parameter at 4 bit. `dtype=None` asks Unsloth to select a suitable calculation type for the GPU.",
+    "expected": "Unsloth messages appear and finally Model and tokenizer loaded.",
+    "check": "Leave `MODEL_ID` unchanged for the first experiment; changing it makes comparisons harder.",
+    "trouble": "If download fails, check connectivity and the checkpoint URL. Some software versions or Colab GPUs require changes from the official notebook."
+  },
+  {
+    "id": 5,
+    "title": "Create 48 training examples and 12 unseen tests",
+    "code": "train_topics = [\n    (\"variable\", \"a named place to store a value\", \"count = 3\"),\n    (\"loop\", \"a way to repeat instructions\", \"for x in items: print(x)\"),\n    (\"function\", \"a reusable block of code\", \"def add(a,b): return a+b\"),\n    (\"list\", \"an ordered collection\", \"items = [1, 2]\"),\n    (\"dictionary\", \"a set of named values\", \"person = {'age': 20}\"),\n    (\"boolean\", \"a true or false value\", \"ready = True\"),\n    (\"class\", \"a blueprint for objects\", \"class Car: pass\"),\n    (\"exception\", \"a signal that something failed\", \"raise ValueError()\"),\n    (\"API\", \"a way for software systems to communicate\", \"GET /products\"),\n    (\"database\", \"an organized place to keep data\", \"SELECT * FROM users\"),\n    (\"cache\", \"storage for results we may reuse\", \"cache['key'] = result\"),\n    (\"queue\", \"a waiting line for work\", \"enqueue(job)\"),\n]\ntest_topics = [\n    (\"recursion\", \"a function calling itself\", \"factorial(n-1)\"),\n    (\"index\", \"a structure that speeds up searching\", \"CREATE INDEX ix ON users(name)\"),\n    (\"JSON\", \"a text format for structured information\", '{\"ok\": true}'),\n]\nquestions = [\"Explain {}.\", \"What is {}?\", \"Define {} simply.\", \"Teach me {}.\"]\n\ndef build_rows(topics):\n    records = []\n    for term, meaning, example in topics:\n        for q in questions:\n            records.append({\n                \"question\": q.format(term),\n                \"answer\": f\"Meaning: {meaning}.\\nExample: {example}\",\n                \"term\": term,\n            })\n    return records\n\ntrain_rows = build_rows(train_topics)\ntest_rows = build_rows(test_topics)\nprint(\"Training examples:\", len(train_rows))\nprint(\"Unseen test questions:\", len(test_rows))\nprint(train_rows[0])\n",
+    "why": "Provide a small dataset without any external download or personal data. The training and test topics are deliberately different.",
+    "explanation": "Each tuple is a topic, a short explanation and a code example. The loop creates four different questions per training topic. This yields 12 × 4 = 48 training records and 3 × 4 = 12 unseen test records. `train_rows` teaches the model the format; `test_rows` must NOT enter training. A test set containing merely reworded versions of training questions can exaggerate results, so even the *topics* are held out here. The sample is tiny on purpose and is not enough for a reliable production model.",
+    "expected": "48 training examples, 12 unseen questions, and one record printed as a Python dictionary.",
+    "check": "Open several examples and check that every Meaning and Example is correct. Correct small data beats large incorrect data.",
+    "trouble": "The JSON illustration uses double quotes, as valid JSON requires. Check the surrounding answer for correctness and simplicity."
+  },
+  {
+    "id": 6,
+    "title": "Convert examples into the model’s chat format",
+    "code": "SYSTEM = (\n    \"You are a software tutor. Answer using exactly two lines: \"\n    \"Meaning: ... and Example: ... . Keep the answer short.\"\n)\n\ndef to_training_text(record):\n    messages = [\n        {\"role\": \"system\", \"content\": SYSTEM},\n        {\"role\": \"user\", \"content\": record[\"question\"]},\n        {\"role\": \"assistant\", \"content\": record[\"answer\"]},\n    ]\n    text = tokenizer.apply_chat_template(\n        messages, tokenize=False, add_generation_prompt=False,\n        enable_thinking=False,\n    )\n    return {\"text\": text}\n\ntrain_dataset = Dataset.from_list(train_rows).map(to_training_text)\nprint(train_dataset[0][\"text\"][:800])\n",
+    "why": "Teach the model who is speaking and which answer belongs to which question.",
+    "explanation": "A chat model recognises speaker markers and special tokens. We create a *system* instruction (the general rule), a *user* question and the desired *assistant* answer. `tokenizer.apply_chat_template` inserts Qwen-compatible boundaries. `tokenize=False` means return readable text now; training tokenizes it later. `add_generation_prompt=False` means this is a completed example, not a request for the model to start speaking. `enable_thinking=False` requests Qwen3 non-thinking formatting for this simple task. `Dataset.from_list` turns Python dictionaries into dataset rows; `.map` transforms every row.",
+    "expected": "You should see special message markers and the first training question plus the desired two-line answer.",
+    "check": "Confirm that the final answer appears after the assistant marker and that no test question is included.",
+    "trouble": "If `enable_thinking` is unsupported by your tokenizer version, follow the updated Qwen3 model/Unsloth chat-template guidance; use the same template for every comparison."
+  },
+  {
+    "id": 7,
+    "title": "Ask the original model before training",
+    "code": "def generate_answer(question):\n    messages = [\n        {\"role\": \"system\", \"content\": SYSTEM},\n        {\"role\": \"user\", \"content\": question},\n    ]\n    inputs = tokenizer.apply_chat_template(\n        messages, tokenize=True, add_generation_prompt=True,\n        enable_thinking=False, return_tensors=\"pt\",\n    ).to(model.device)\n    model.eval()\n    with torch.inference_mode():\n        outputs = model.generate(\n            input_ids=inputs,\n            max_new_tokens=96,\n            do_sample=False,\n            pad_token_id=tokenizer.eos_token_id,\n        )\n    generated = outputs[0][inputs.shape[1]:]\n    return tokenizer.decode(generated, skip_special_tokens=True).strip()\n\nbefore = [generate_answer(row[\"question\"]) for row in test_rows]\nfor q, answer in zip(test_rows[:3], before[:3]):\n    print(\"QUESTION:\", q[\"question\"])\n    print(\"BEFORE:\", answer, \"\\n\")\n",
+    "why": "Record a baseline so you can test whether the training accomplished anything.",
+    "explanation": "The function builds messages for an unseen question. `tokenize=True` converts text into the numbers the model sees; `.to(model.device)` moves numbers to the GPU. `model.eval()` switches off training-only behaviour. `torch.inference_mode()` disables gradient calculations to save memory. `generate` produces up to 96 new tokens; `do_sample=False` uses deterministic decoding. The slice `outputs[0][inputs.shape[1]:]` removes the prompt tokens so only the answer is returned. The list `before` stores all original answers.",
+    "expected": "You see three printed baseline answers. Their quality may already be good, because the system instruction itself requests the two-line format.",
+    "check": "Do not adjust the question text after this point. Use exactly the same 12 questions and generation settings after training.",
+    "trouble": "If generation is slow, reduce `max_new_tokens`. If responses contain thinking markers, verify non-thinking chat formatting and parsing; do not compare mixed formats."
+  },
+  {
+    "id": 8,
+    "title": "Attach a small trainable LoRA adapter",
+    "code": "model = FastLanguageModel.get_peft_model(\n    model,\n    r=8,\n    lora_alpha=16,\n    lora_dropout=0,\n    bias=\"none\",\n    target_modules=[\n        \"q_proj\", \"k_proj\", \"v_proj\", \"o_proj\",\n        \"gate_proj\", \"up_proj\", \"down_proj\",\n    ],\n    use_gradient_checkpointing=\"unsloth\",\n    random_state=SEED,\n)\nprint(\"LoRA adapter attached\")\n",
+    "why": "Train only a small set of extra weights instead of retraining every number in the model.",
+    "explanation": "`get_peft_model` adds the small trainable LoRA components. `r=8` determines their size; a larger rank generally trains more values. `lora_alpha=16` controls their scaling. `lora_dropout=0` is a common Unsloth starting setting. `target_modules` says which internal layers receive adapters; leave these values alone as a beginner. `use_gradient_checkpointing=\"unsloth\"` trades extra computation for less memory usage. `random_state` makes adapter initialisation more repeatable. The original compressed model is mostly frozen.",
+    "expected": "A message confirms an adapter was added; some versions print trainable parameter counts.",
+    "check": "We are fine tuning with LoRA and a 4 bit base, often called QLoRA, not teaching a 27B model from scratch.",
+    "trouble": "If a target-module error appears, copy the Qwen3 configuration from Unsloth’s maintained example notebook."
+  },
+  {
+    "id": 9,
+    "title": "Configure the trainer",
+    "code": "from trl import SFTTrainer, SFTConfig\n\nsettings = SFTConfig(\n    output_dir=\"qwen_lab_checkpoints\",\n    dataset_text_field=\"text\",\n    max_length=MAX_LENGTH,\n    packing=False,\n    per_device_train_batch_size=1,\n    gradient_accumulation_steps=4,\n    max_steps=30,\n    learning_rate=2e-4,\n    logging_steps=5,\n    save_steps=30,\n    fp16=not torch.cuda.is_bf16_supported(),\n    bf16=torch.cuda.is_bf16_supported(),\n    report_to=\"none\",\n    seed=SEED,\n)\ntrainer = SFTTrainer(\n    model=model,\n    processing_class=tokenizer,\n    train_dataset=train_dataset,\n    args=settings,\n)\nprint(\"Trainer configured\")\n",
+    "why": "Tell the trainer what to read, how many updates to make, and how cautiously to learn.",
+    "explanation": "`SFTTrainer` is the supervised fine tuning manager. `SFTConfig` stores the settings. `output_dir` is where intermediate results go. `dataset_text_field=\"text\"` chooses the column built in Cell 06. `max_length` bounds sequence length. `packing=False` makes samples easier to reason about. `per_device_train_batch_size=1` processes one example at a time on the GPU, saving memory; `gradient_accumulation_steps=4` combines four such passes before one update. `max_steps=30` limits this educational run to 30 optimisation steps. `learning_rate=2e-4` controls weight-adjustment size. `logging_steps=5` prints loss regularly. `save_steps=30` saves a checkpoint near the end. `fp16`/`bf16` chooses precision supported by the GPU. `report_to=\"none\"` stops optional experiment trackers. `processing_class=tokenizer` is the modern TRL argument.",
+    "expected": "Trainer configured, possibly after Unsloth or TRL status messages.",
+    "check": "Write down the settings before any tuning. If you adjust three settings simultaneously you will not know what caused an outcome.",
+    "trouble": "TRL changes argument names over time. If you see “unexpected keyword”, use one supported version set from Unsloth’s maintained notebook, not a mix of old and new snippets."
+  },
+  {
+    "id": 10,
+    "title": "Run the actual fine tuning",
+    "code": "training_result = trainer.train()\nprint(training_result.metrics)\n",
+    "why": "This is the step that actually changes the new trainable weights using your examples.",
+    "explanation": "`trainer.train()` feeds token sequences through the model, predicts what text comes next, compares predictions with the desired training text, calculates an error called **loss**, and updates the LoRA weights to reduce that error. Thirty steps with four accumulated mini batches means approximately 120 example presentations, with repeated exposure to the 48 training records. `training_result.metrics` prints the summary. Training on tiny repetitive data can overfit very quickly.",
+    "expected": "Progress and loss messages appear; the run ends with a dictionary containing training metrics. No specific final loss value is guaranteed.",
+    "check": "A decreasing training loss indicates the model is getting better at predicting *training text*, but it does not prove it answers new questions correctly.",
+    "trouble": "If CUDA runs out of memory, restart and reduce MAX_LENGTH to 256, rank to 4 or reduce other memory demands. If interrupted, you may need to rerun from loading the model."
+  },
+  {
+    "id": 11,
+    "title": "Repeat the same unseen questions",
+    "code": "after = [generate_answer(row[\"question\"]) for row in test_rows]\nfor row, old, new in zip(test_rows[:4], before[:4], after[:4]):\n    print(\"QUESTION:\", row[\"question\"])\n    print(\"BEFORE:\", old)\n    print(\"AFTER:\", new, \"\\n\")\n",
+    "why": "Observe behavioural changes on questions and topics the trainer never saw.",
+    "explanation": "This deliberately reuses the existing `generate_answer` function and the unchanged `test_rows`. `before` was computed from the original model; `after` is computed once the LoRA weights have been updated. Keeping the prompt, tokenizer, generation settings and test questions constant makes the comparison fairer.",
+    "expected": "Four before-and-after pairs print. They may or may not improve: a small experiment has no guaranteed success.",
+    "check": "Look for hallucinated code, missing Meaning/Example labels, unnecessary extra lines and incorrect definitions.",
+    "trouble": "If answers are unchanged, that is still a useful result: try a better, more varied dataset, or compare without the strict system-format instruction."
+  },
+  {
+    "id": 12,
+    "title": "Score the outputs and save an evaluation CSV",
+    "code": "import csv\n\ndef format_ok(answer):\n    lines = [line.strip() for line in answer.splitlines() if line.strip()]\n    return (len(lines) == 2 and\n            lines[0].startswith(\"Meaning:\") and\n            lines[1].startswith(\"Example:\"))\n\nbefore_score = sum(format_ok(x) for x in before) / len(before)\nafter_score = sum(format_ok(x) for x in after) / len(after)\nprint(f\"Before format score: {before_score:.1%}\")\nprint(f\"After  format score: {after_score:.1%}\")\n\nwith open(\"qwen_lab_evaluation.csv\", \"w\", newline=\"\", encoding=\"utf-8\") as f:\n    writer = csv.writer(f)\n    writer.writerow([\"question\", \"before\", \"after\", \"before_format_ok\", \"after_format_ok\"])\n    for row, old, new in zip(test_rows, before, after):\n        writer.writerow([row[\"question\"], old, new, format_ok(old), format_ok(new)])\nprint(\"Saved qwen_lab_evaluation.csv\")\n",
+    "why": "Turn a subjective impression into a simple, auditable result. Keep your raw responses for later inspection.",
+    "explanation": "`format_ok` checks whether there are exactly two nonempty lines, with the requested labels. The percentages are computed over all 12 test questions. `csv.writer` saves each question and both responses to a local report file. **Important:** this metric tests formatting only; it does not measure whether the explanations or code snippets are correct. Because the system prompt already specifies the format, the baseline score may be 100%. A score of 100% after training therefore does not prove that fine tuning helped.",
+    "expected": "Two scores print between 0% and 100%, and a CSV file appears in the Colab file sidebar.",
+    "check": "For a proper review, manually grade meaning accuracy and example correctness (0 or 1 each), and try 20+ genuinely new questions.",
+    "trouble": "If scores are equal, test without the exact-format system instruction and compare again; otherwise prompting and fine tuning can be confused."
+  },
+  {
+    "id": 13,
+    "title": "Save and download the LoRA adapter",
+    "code": "model.save_pretrained(\"qwen_tutor_adapter\")\ntokenizer.save_pretrained(\"qwen_tutor_adapter\")\n!zip -qr qwen_tutor_adapter.zip qwen_tutor_adapter\nfrom google.colab import files\nfiles.download(\"qwen_tutor_adapter.zip\")\n",
+    "why": "Do not lose the weights when the temporary Colab session shuts down.",
+    "explanation": "`save_pretrained` writes the trained LoRA adapter and tokenizer configuration to a folder. The `zip` shell command compresses the folder. `files.download` asks your browser to save that ZIP to your own computer. The ZIP contains the adapter, **not necessarily a standalone full model**; using it later requires the compatible original Qwen checkpoint. Colab files can disappear when a runtime resets.",
+    "expected": "A browser download prompt appears. Save the ZIP somewhere safe, not only in Colab.",
+    "check": "Unzip and confirm there is an adapter config and at least one adapter weights file.",
+    "trouble": "If the download popup is blocked, use the Colab Files sidebar or copy the ZIP to mounted Google Drive."
+  },
+  {
+    "id": 14,
+    "title": "Optional: export the full result to GGUF",
+    "code": "# Run ONLY if you want to use the tuned model in Ollama.\n# Export can take extra RAM, VRAM, disk space and time.\nmodel.save_pretrained_gguf(\n    \"qwen_tutor_gguf\", tokenizer,\n    quantization_method=\"q4_k_m\",\n)\nimport glob\nprint(glob.glob(\"qwen_tutor_gguf/*.gguf\"))\n",
+    "why": "Create a file format that Ollama can load as a complete inference model.",
+    "explanation": "`save_pretrained_gguf` asks Unsloth to combine/export the learned result and convert it to GGUF, a common local inference format. `q4_k_m` is a practical 4 bit output compression method; it is independent of the LoRA rank. `glob` lists the actual generated filenames. This export is **optional** because a free Colab runtime may not have enough memory or disk space for conversion, even when training succeeded.",
+    "expected": "If successful, the printed list contains a .gguf filename inside qwen_tutor_gguf.",
+    "check": "Keep the exact printed filename for the Ollama Modelfile. Do not guess it.",
+    "trouble": "If GGUF conversion runs out of memory, stop: the training experiment is still complete. Keep the adapter ZIP and follow Unsloth’s current export guide another day."
+  }
+]
