@@ -1,5 +1,9 @@
 # FineTune Lab
 
+[![CI](https://github.com/Shilin237/finetune-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/Shilin237/finetune-lab/actions/workflows/ci.yml)
+
+![FineTune Lab course overview](docs/screenshots/overview.png)
+
 An interactive beginner-first course for learning LLM fine tuning with **Qwen3 0.6B, Google Colab, Unsloth and Ollama**.
 
 ## What is included
@@ -16,10 +20,10 @@ An interactive beginner-first course for learning LLM fine tuning with **Qwen3 0
 
 ## Run the website
 
-Prerequisites: Node.js 20.9+ and npm. Internet access is required for the first dependency installation.
+Prerequisites: Node.js 22+ and npm. Internet access is required for the first dependency installation.
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -52,33 +56,32 @@ Progress, draft dataset examples and evaluation results use the current browser'
 
 ## Package and accuracy notes
 
-This project was prepared in a sandbox without access to npm's package registry, so a full `npm install && npm run build` could not be executed here. Install dependencies and run the build on your machine. Google Colab GPU availability, model links, Python/TRL APIs and Unsloth support can change; start from the included notebook and check the official documentation if a package version is incompatible.
+The production website build and browser workflows are checked by CI. The GPU training notebook is not executed by CI. Google Colab GPU availability, model links, Python/TRL APIs and Unsloth support can change; start from the included notebook and check the official documentation if a package version is incompatible.
 
 The model size slider uses an approximate raw-weight formula and teaching-only inference overhead. It does not estimate fine tuning training memory or guarantee fit. The loss plot is simulated and never represents benchmark measurements.
 
-## Structure
+## Engineering and validation
 
-```text
-app/
-  layout.jsx
-  page.jsx
-  globals.css
-components/
-  LearningApp.jsx
-data/
-  lessonData.js
-  labSteps.json
-public/
-  downloads/
-    complete-handbook.docx
-    qwen-unsloth-lab.ipynb
-  illustrations/
-    tool-stack.svg
-    lora-architecture.svg
-scripts/
-  check-content.mjs
-start-windows.bat
+```sh
+npm run format:check
+npm run check:content
+npm run build
+npx playwright install chromium
+npm run test:e2e
 ```
+
+Chromium tests cover glossary search, mobile navigation, invalid JSONL import, persistence and separation of training and held out test exports. They run against the production build without model API calls.
+
+The application is organized into a navigation shell, focused page components, shared UI primitives and course data. Read [architecture and decisions](docs/architecture.md) for boundaries and tradeoffs, or [contributing](CONTRIBUTING.md) to make a change.
+
+| Path | Responsibility |
+| --- | --- |
+| `components/LearningApp.jsx` | Navigation and course progress |
+| `components/pages/` | Lessons, lab, dataset, evaluation and visual tools |
+| `components/ui.jsx` | Shared presentation components |
+| `data/` | Course material and explained notebook stages |
+| `public/downloads/` | Handbook and runnable Colab notebook |
+| `tests/e2e/` | Browser behavior tests |
 
 ## Credits / official references
 
